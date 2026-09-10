@@ -1,0 +1,42 @@
+name: knit scarf
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/scripts/knit_scarf.py"
+
+permissions:
+  contents: write
+
+jobs:
+  knit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Pillow
+        run: pip install pillow
+
+      - name: Generate scarf gif
+        run: python .github/scripts/knit_scarf.py "${{ github.repository_owner }}"
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/scarf.gif
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "chore: re-knit contribution scarf"
+            git push
+          fi

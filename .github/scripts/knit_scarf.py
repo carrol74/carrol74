@@ -35,10 +35,12 @@ def load(user):
             },
         )
         with urllib.request.urlopen(req, timeout=30) as r:
-            data = json.load(r)
-        if "errors" in data:
-            raise SystemExit(f"GraphQL error: {data['errors']}")
-        weeks = data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+            resp = json.load(r)
+        if "errors" in resp:
+            raise SystemExit(f"GraphQL error: {resp['errors']}")
+        weeks = resp["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+        levels = {"NONE": 0, "FIRST_QUARTILE": 1, "SECOND_QUARTILE": 2,
+                  "THIRD_QUARTILE": 3, "FOURTH_QUARTILE": 4}
         days = []
         for wk in weeks:
             for d in wk["contributionDays"]:
@@ -46,7 +48,7 @@ def load(user):
                     "date": d["date"][:10],
                     "count": d["contributionCount"],
                     # GitHub's own level 0-4 — no renormalization needed
-                    "level": int(d["contributionLevel"]),
+                    "level": levels[d["contributionLevel"]],
                 })
         return days
     url = f"https://github-contributions-api.jogruber.de/v4/{user}?y=last"

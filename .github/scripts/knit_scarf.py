@@ -19,14 +19,18 @@ def build_grid(days):
     if not days:
         return [[0] * 53 for _ in range(7)], 53
     d0 = datetime.strptime(days[0]["date"], "%Y-%m-%d").date()
-    weeks = min(53, (datetime.strptime(days[-1]["date"], "%Y-%m-%d").date() - d0).days // 7 + 1)
+    # align to calendar weeks starting on Sunday, like GitHub's graph
+    d0 = d0 - __import__("datetime").timedelta(days=(d0.weekday() + 1) % 7)
+    dN = datetime.strptime(days[-1]["date"], "%Y-%m-%d").date()
+    weeks = (dN - d0).days // 7 + 1
     grid = [[0] * weeks for _ in range(7)]
     mx = max(max(c["count"] for c in days), 1)
     for c in days:
         d = datetime.strptime(c["date"], "%Y-%m-%d").date()
         w = (d - d0).days // 7
+        row = (d.weekday() + 1) % 7  # Sunday = row 0, like GitHub
         if 0 <= w < weeks:
-            grid[d.weekday()][w] = min(4, 1 + c["count"] * 4 // mx) if c["count"] else 0
+            grid[row][w] = min(4, 1 + c["count"] * 4 // mx) if c["count"] else 0
     return grid, weeks
 
 def draw_stitch(dr, x, y, s, color, dotted=False):

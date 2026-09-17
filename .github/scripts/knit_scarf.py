@@ -6,31 +6,68 @@ from PIL import Image, ImageDraw
 HERE = os.path.dirname(__file__)
 OUT = os.path.join(os.path.dirname(HERE), "..", "assets", "scarf.gif")
 
-def load(user, labels):
-    days = []
-    for y in labels:
-        url = f"https://github-contributions-api.jogruber.de/v4/{user}?y={y}"
-        with urllib.request.urlopen(url, timeout=30) as r:
-            days += json.load(r)["contributions"]
-    days.sort(key=lambda c: c["date"])
-    return days
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+
+GRAPHQL_QUERY = """
+query($name: String!) {
+  user(login: $name) {
+    contributionsCollection {
+      contributionCalendar {
+        weeks { contributionDays { date contributionCount contributionLevel } }
+      }
+    }
+  }
+}"""
+
+def load(user):
+    """Fetch the contribution calendar. Uses GraphQL with GITHUB_TOKEN when
+    available (includes private contributions, matching the user's profile
+    graph); falls back to the public jogruber API otherwise."""
+    if GITHUB_TOKEN:
+        body = json.dumps({"query": GRAPHQL_QUERY, "variables": {"name": user}}).encode()
+        req = urllib.request.Request(
+            "https://api.github.com/graphql",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Content-Type": "application/json",
+                "User-Agent": "scarf-knitter",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.load(r)
+        if "errors" in data:
+            raise SystemExit(f"GraphQL error: {data['errors']}")
+        weeks = data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+        days = []
+        for wk in weeks:
+            for d in wk["contributionDays"]:
+                days.append({
+                    "date": d["date"][:10],
+                    "count": d["contributionCount"],
+                    # GitHub's own level 0-4 — no renormalization needed
+                    "level": int(d["contributionLevel"]),
+                })
+        return days
+    url = f"https://github-contributions-api.jogruber.de/v4/{user}?y=last"
+    with urllib.request.urlopen(url, timeout=30) as r:
+        return json.load(r)["contributions"]
 
 def build_grid(days):
     if not days:
         return [[0] * 53 for _ in range(7)], 53
-    d0 = datetime.strptime(days[0]["date"], "%Y-%m-%d").date()
-    # align to calendar weeks starting on Sunday, like GitHub's graph
-    d0 = d0 - __import__("datetime").timedelta(days=(d0.weekday() + 1) % 7)
-    dN = datetime.strptime(days[-1]["date"], "%Y-%m-%d").date()
-    weeks = (dN - d0).days // 7 + 1
+    weeks = min(53, len(days) // 7 + 2)
     grid = [[0] * weeks for _ in range(7)]
-    mx = max(max(c["count"] for c in days), 1)
     for c in days:
         d = datetime.strptime(c["date"], "%Y-%m-%d").date()
-        w = (d - d0).days // 7
+        # GitHub weeks start on Sunday; column = weeks since the first Sunday
+        d0 = datetime.strptime(days[0]["date"], "%Y-%m-%d").date()
+        d0 = d0.toordinal() - (d0.weekday() + 1) % 7
+        wk_start = d.toordinal() - (d.weekday() + 1) % 7
+        w = (wk_start - d0) // 7
         row = (d.weekday() + 1) % 7  # Sunday = row 0, like GitHub
         if 0 <= w < weeks:
-            grid[row][w] = min(4, 1 + c["count"] * 4 // mx) if c["count"] else 0
+            grid[row][w] = c["level"]
     return grid, weeks
 
 def draw_stitch(dr, x, y, s, color, dotted=False):
@@ -86,8 +123,7 @@ def draw_ball(img, dr, cx, cy, r, base, dark, light):
 
 def main():
     user = sys.argv[1] if len(sys.argv) > 1 else "carrol74"
-    labels = sys.argv[2:] or ["last"]
-    grid, weeks = build_grid(load(user, labels))
+    grid, weeks = build_grid(load(user))
 
     PITCH, CELL, MARGIN = 15, 12, 16
     panel_w, panel_h = weeks * PITCH, 7 * PITCH

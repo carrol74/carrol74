@@ -27,6 +27,8 @@ jobs:
         run: pip install pillow
 
       - name: Generate scarf gif
+        env:
+          GITHUB_TOKEN: ${{ secrets.SCARF_GITHUB_TOKEN || github.token }}
         run: python .github/scripts/knit_scarf.py "${{ github.repository_owner }}"
 
       - name: Commit if changed
